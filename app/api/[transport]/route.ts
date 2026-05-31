@@ -4,27 +4,29 @@ import { ledgerDb, spendDb } from "@/lib/supabase";
 
 export const maxDuration = 30;
 
-// Mirrors agent-state/watchdog.py WATCHED_AGENTS. Kept in sync by hand; the
-// watchdog is the source of truth for alerting — this is only for chat context.
-const SILENCE_BUDGET_HOURS: Record<string, number> = {
-  "daily-coach": 84,
-  "tweet-drafts": 84,
-  "tweet-post": 84,
-  "tweet-healthcheck": 84,
-  "x-ingest": 30,
-  "x-intel-alerts": 30,
-  "calendar-sync": 14,
-  "weekly-synthesis": 192,
-  "weekly-articulation": 192,
-  "weekly-content": 192,
-  "weekly-data-pull": 192,
-  "tweet-cookie-refresh": 192,
-  "maor-prep": 384,
-  "weekly-recovery": 192,
-  "auth-healthcheck": 30,
+// Per-agent staleness budgets: hours of silence before an agent is considered
+// stale. Customize for your own scheduled jobs, or override at runtime by
+// setting SILENCE_BUDGETS_JSON (a JSON object of { "agent-name": hours }).
+// Agents not listed here simply report their last run without a stale verdict.
+const DEFAULT_SILENCE_BUDGET_HOURS: Record<string, number> = {
+  "hourly-job": 3,
+  "daily-job": 30,
+  "weekday-job": 84,
+  "weekly-job": 192,
 };
 
-const WEEKLY_BUDGET_USD = 10;
+const SILENCE_BUDGET_HOURS: Record<string, number> = (() => {
+  try {
+    if (process.env.SILENCE_BUDGETS_JSON) {
+      return JSON.parse(process.env.SILENCE_BUDGETS_JSON);
+    }
+  } catch {
+    /* fall through to defaults */
+  }
+  return DEFAULT_SILENCE_BUDGET_HOURS;
+})();
+
+const WEEKLY_BUDGET_USD = Number(process.env.WEEKLY_BUDGET_USD) || 10;
 
 function hoursAgo(iso: string): number {
   return (Date.now() - new Date(iso).getTime()) / 3_600_000;
@@ -53,9 +55,9 @@ const handler = createMcpHandler(
       {
         title: "What's being built",
         description:
-          "Open work-threads from the agent-state ledger — the current things " +
-          "Eitan is developing across his side-projects. Returns title, domain, " +
-          "area, priority and last-movement time. (Encrypted notes are omitted.)",
+          "Open work-threads from the ledger — the things currently being built " +
+          "across your projects. Returns title, domain, area, priority and " +
+          "last-movement time. (Any encrypted notes column is omitted.)",
         inputSchema: {
           domain: z
             .enum(["corporate", "personal", "coaching"])

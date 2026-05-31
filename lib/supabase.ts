@@ -2,11 +2,12 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * Two separate Supabase projects back this server:
- *   - agent-state project (rnycgzofwpuhjjxdywjd): `threads` + `agent_health`
- *   - spend project (kqdnoxujhgbszkysehbu): `spend_log`
+ *   - the "ledger" project: `threads` + `agent_health`
+ *   - the "spend" project:  `spend_log`
  *
- * Service-role keys are used (read-only intent enforced by the tool layer —
- * every query is a SELECT). Keys live only in Vercel env, never in the repo.
+ * They can be the same project (point both URL/key pairs at it) or different
+ * ones. Service-role keys are used; read-only intent is enforced by the tool
+ * layer — every query is a SELECT. Keys live only in env, never in the repo.
  */
 
 function required(name: string): string {
