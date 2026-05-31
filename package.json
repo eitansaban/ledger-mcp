@@ -1,0 +1,24 @@
+{
+  "name": "ledger-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remote MCP server briefing claude.ai on what's being built (agent-state threads), agent ops health, and weekly Anthropic spend.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.106.2",
+    "mcp-handler": "^1.1.0",
+    "next": "^15.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "typescript": "^5.7.2"
+  }
+}
