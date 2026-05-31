@@ -55,34 +55,40 @@ const handler = createMcpHandler(
       {
         title: "What's being built",
         description:
-          "Open work-threads from the ledger — the things currently being built " +
-          "across your projects. Returns title, domain, area, priority and " +
-          "last-movement time. (Any encrypted notes column is omitted.)",
+          "The projects currently being built across the workspace — an " +
+          "auto-derived inventory (refreshed daily) with language, deploy, and " +
+          "tooling flags. Use to answer 'what am I building right now?' or " +
+          "'does something for this already exist?' before starting new work.",
         inputSchema: {
-          domain: z
-            .enum(["corporate", "personal", "coaching"])
+          include_archived: z
+            .boolean()
             .optional()
-            .describe("Filter to one domain. Omit for all."),
+            .describe("Include archived projects. Default false."),
         },
       },
-      async ({ domain }) => {
-        let q = ledgerDb()
-          .from("threads")
+      async ({ include_archived }) => {
+        const { data, error } = await ledgerDb()
+          .from("portfolio_snapshot")
           .select(
-            "id,title,domain,area,priority,source_agent,opened_at,last_movement_at,carry_count"
+            "dir_name,language,last_modified_at,has_vercel,vercel_project_name,anthropic_sdk_present,spend_logging_wired,watchdog_registered,is_archived,notes,scanned_at"
           )
-          .eq("status", "open")
-          .order("last_movement_at", { ascending: false });
-        if (domain) q = q.eq("domain", domain);
-        const { data, error } = await q;
-        if (error) throw new Error(`threads query failed: ${error.message}`);
+          .order("last_modified_at", { ascending: false });
+        if (error) throw new Error(`portfolio_snapshot query failed: ${error.message}`);
+        const rows = (data ?? []).filter((r) => include_archived || !r.is_archived);
         return text({
-          open_thread_count: data?.length ?? 0,
-          threads: data ?? [],
-          note:
-            (data?.length ?? 0) === 0
-              ? "No open threads recorded yet — the ledger is freshly seeded."
-              : undefined,
+          project_count: rows.length,
+          as_of: data?.[0]?.scanned_at ?? null,
+          projects: rows.map((r) => ({
+            project: r.dir_name,
+            language: r.language,
+            last_modified: r.last_modified_at?.slice(0, 10) ?? null,
+            deployed: r.has_vercel ? r.vercel_project_name || true : false,
+            uses_anthropic: r.anthropic_sdk_present,
+            spend_logged: r.anthropic_sdk_present ? r.spend_logging_wired : null,
+            watchdog: r.watchdog_registered,
+            archived: r.is_archived,
+            notes: r.notes || undefined,
+          })),
         });
       }
     );
