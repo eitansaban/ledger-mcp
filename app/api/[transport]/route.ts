@@ -220,24 +220,15 @@ const handler = createMcpHandler(
         const n = months ?? 12;
         const { data, error } = await spendDb()
           .from("anthropic_receipts")
-          .select("paid_date,amount_usd,description")
+          .select("paid_date,amount_usd,description,category")
           .order("paid_date", { ascending: false });
         if (error)
           throw new Error(`anthropic_receipts query failed: ${error.message}`);
         const rows = data ?? [];
 
-        // Exact mirror of categorizeReceipt() in spend-dashboard/lib/gmail-receipts.ts
-        // (same labels the dashboard shows). Keep in sync if that taxonomy changes.
-        const categorize = (desc: string | null): string => {
-          if (!desc) return "Credit purchase";
-          const d = desc.toLowerCase();
-          if (d.includes("max plan")) return "Max subscription";
-          if (d.includes("pro plan")) return "Pro subscription";
-          if (d.includes("auto-recharge")) return "Auto-recharge";
-          if (d.includes("prepaid")) return "Prepaid usage";
-          if (d.includes("one-time credit purchase")) return "Credit grant";
-          return desc;
-        };
+        // Categorization lives in the DB: anthropic_receipts.category is a
+        // generated column — the single source of truth shared with the
+        // spend-dashboard UI. No local taxonomy here.
         // Receipt bodies arrive quoted-printable; en-dashes survive as "=E2=80=93".
         const clean = (desc: string) => (desc || "").replace(/=E2=80=93/g, "–");
 
@@ -254,7 +245,7 @@ const handler = createMcpHandler(
           const amt = Number(r.amount_usd) || 0;
           allTime += amt;
           if (r.paid_date?.startsWith(String(year))) ytd += amt;
-          const cat = categorize(r.description);
+          const cat = r.category ?? "Uncategorized";
           byCategory[cat] = (byCategory[cat] ?? 0) + amt;
           const month = r.paid_date?.slice(0, 7) ?? "unknown";
           const m = (byMonth[month] ??= { paid_usd: 0, receipts: 0, by_category: {} });
