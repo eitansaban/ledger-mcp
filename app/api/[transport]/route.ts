@@ -308,14 +308,39 @@ function authorized(req: Request): boolean {
   return fromQuery === secret || fromHeader === secret;
 }
 
-function guard(req: Request): Promise<Response> {
-  if (!authorized(req)) {
-    return Promise.resolve(
-      new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { "content-type": "application/json" },
-      })
+// JSON-RPC methods that may run WITHOUT the key. claude.ai's connector
+// "Connect" step (since ~June 2026) probes the bare server URL with the query
+// string stripped; a 401 there makes it demand an OAuth sign-in service and
+// the connect fails. These methods only expose tool names/descriptions —
+// actual data access (tools/call and everything else) still requires the key.
+const HANDSHAKE_METHODS = new Set([
+  "initialize",
+  "notifications/initialized",
+  "notifications/cancelled",
+  "ping",
+  "tools/list",
+]);
+
+async function isHandshakeOnly(req: Request): Promise<boolean> {
+  if (req.method !== "POST") return false;
+  try {
+    const body = await req.clone().json();
+    const msgs = Array.isArray(body) ? body : [body];
+    return (
+      msgs.length > 0 &&
+      msgs.every((m) => typeof m?.method === "string" && HANDSHAKE_METHODS.has(m.method))
     );
+  } catch {
+    return false;
+  }
+}
+
+async function guard(req: Request): Promise<Response> {
+  if (!authorized(req) && !(await isHandshakeOnly(req))) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
   }
   return handler(req);
 }
