@@ -195,6 +195,107 @@ const handler = createMcpHandler(
         });
       }
     );
+
+    // ─── 4. Receipts summary ─────────────────────────────────────────────
+    server.registerTool(
+      "receipts_summary",
+      {
+        title: "Anthropic receipts (actual paid)",
+        description:
+          "What was actually paid to Anthropic, from Gmail receipts — Max plan " +
+          "subscription, API credit purchases, and extra-usage charges, by month " +
+          "and category. Use to answer 'what did I actually pay Anthropic?' " +
+          "(weekly_spend only covers script-tracked API estimates).",
+        inputSchema: {
+          months: z
+            .number()
+            .int()
+            .min(1)
+            .max(24)
+            .optional()
+            .describe("How many recent months to break down. Default 12."),
+        },
+      },
+      async ({ months }) => {
+        const n = months ?? 12;
+        const { data, error } = await spendDb()
+          .from("anthropic_receipts")
+          .select("paid_date,amount_usd,description")
+          .order("paid_date", { ascending: false });
+        if (error)
+          throw new Error(`anthropic_receipts query failed: ${error.message}`);
+        const rows = data ?? [];
+
+        // Exact mirror of categorizeReceipt() in spend-dashboard/lib/gmail-receipts.ts
+        // (same labels the dashboard shows). Keep in sync if that taxonomy changes.
+        const categorize = (desc: string | null): string => {
+          if (!desc) return "Credit purchase";
+          const d = desc.toLowerCase();
+          if (d.includes("max plan")) return "Max subscription";
+          if (d.includes("pro plan")) return "Pro subscription";
+          if (d.includes("auto-recharge")) return "Auto-recharge";
+          if (d.includes("prepaid")) return "Prepaid usage";
+          if (d.includes("one-time credit purchase")) return "Credit grant";
+          return desc;
+        };
+        // Receipt bodies arrive quoted-printable; en-dashes survive as "=E2=80=93".
+        const clean = (desc: string) => (desc || "").replace(/=E2=80=93/g, "–");
+
+        const round2 = (x: number) => Math.round(x * 100) / 100;
+        const year = new Date().getUTCFullYear();
+        let allTime = 0;
+        let ytd = 0;
+        const byCategory: Record<string, number> = {};
+        const byMonth: Record<
+          string,
+          { paid_usd: number; receipts: number; by_category: Record<string, number> }
+        > = {};
+        for (const r of rows) {
+          const amt = Number(r.amount_usd) || 0;
+          allTime += amt;
+          if (r.paid_date?.startsWith(String(year))) ytd += amt;
+          const cat = categorize(r.description);
+          byCategory[cat] = (byCategory[cat] ?? 0) + amt;
+          const month = r.paid_date?.slice(0, 7) ?? "unknown";
+          const m = (byMonth[month] ??= { paid_usd: 0, receipts: 0, by_category: {} });
+          m.paid_usd += amt;
+          m.receipts += 1;
+          m.by_category[cat] = (m.by_category[cat] ?? 0) + amt;
+        }
+        return text({
+          receipts_seen: rows.length,
+          total_paid_all_time_usd: round2(allTime),
+          total_paid_ytd_usd: round2(ytd),
+          by_category_all_time: Object.fromEntries(
+            Object.entries(byCategory)
+              .sort((a, b) => b[1] - a[1])
+              .map(([k, v]) => [k, round2(v)])
+          ),
+          by_month: Object.keys(byMonth)
+            .sort()
+            .reverse()
+            .slice(0, n)
+            .map((month) => ({
+              month,
+              paid_usd: round2(byMonth[month].paid_usd),
+              receipts: byMonth[month].receipts,
+              by_category: Object.fromEntries(
+                Object.entries(byMonth[month].by_category).map(([k, v]) => [
+                  k,
+                  round2(v),
+                ])
+              ),
+            })),
+          last_receipt: rows[0]
+            ? {
+                paid_date: rows[0].paid_date,
+                amount_usd: Number(rows[0].amount_usd),
+                description: clean(rows[0].description),
+              }
+            : null,
+        });
+      }
+    );
   },
   {},
   { basePath: "/api" }
